@@ -1,0 +1,44 @@
+#!/bin/bash
+#SBATCH --mem=500G
+#SBATCH --output=%j_%x.out
+#SBATCH --error=%j_%x.err
+#SBATCH --mail-user=alejandro.delosangeles@sjc.ox.ac.uk
+#SBATCH --mail-type=end,fail
+
+cd /t1-data/user/aangeles/fastaq_files/naive
+
+## Takes in argument from command line
+file=$1
+
+## Load modules
+echo "$file is going to be processed"
+module load trim_galore/0.6.5
+module load fastqc/0.11.9
+module load rna-star/2.6.1d
+module load python-cbrg
+module load samtools
+
+## Creates variable and directory path
+base=$(basename ${file});
+
+## Trim adapters from raw sequencing data FASTQ files using Trim Galore
+trim_galore ${file} -o /t1-data/user/aangeles/fastaq_files/naive
+
+## Generate FastQC reports from trimmed adapter files
+fastqc -f fastq ${base/.fastq/}_trimmed.fq
+
+## Gunzip trimmed adapter files1
+gzip ${base/.fastq/}_trimmed.fq
+
+## Align trimmed adapter files to genome using STAR
+STAR --runThreadN 8 --genomeDir /t1-data/user/aangeles/fastaq_files/DESEQ --readFilesIn ${base/.fastq/}_trimmed.fq --outFileNamePrefix /t1-data/user/aangeles/fastaq_files/naive/${base/.fastq/} --twopassMode Basic --outSAMstrandField intronMotif --readFilesCommand zcat --outSAMtype BAM Unsorted
+
+##sort and index bam file
+samtools sort ${base/.fastq/}Aligned.out.bam -o ${base/.fastq/}Aligned.out.sorted.bam
+samtools index ${base/.fastq/}Aligned.out.sorted.bam
+
+## Generate count files using HTSEQ
+htseq-count --mode=intersection-strict --stranded=no --type=exon --format=bam --idattr=gene_id /t1-data/user/aangeles/fastaq_files/naive/${base/.fastq/}Aligned.out.sorted.bam /t1-data/user/aangeles/fastaq_files/new_annotation.gtf > ${base/.fastq/}.txt
+
+## Delete trimmed adapter files after STAR
+rm ${base/.fastq/}_trimmed.fq
